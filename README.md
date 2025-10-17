@@ -1,4 +1,4 @@
-# `python-lambda-template`
+# `python-lambda-assistant`
 
 ## Contributing
 
