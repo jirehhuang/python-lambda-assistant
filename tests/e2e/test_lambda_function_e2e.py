@@ -4,6 +4,9 @@ import pytest
 import requests
 
 from lambda_function.alexa import _text_output
+from lambda_function.responder import _get_assistant
+
+_get_assistant(bool_prod=False)
 
 
 def query2response(api_url: str, api_key: str, query: str) -> dict:
