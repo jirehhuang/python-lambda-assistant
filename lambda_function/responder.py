@@ -37,7 +37,16 @@ def _initialize_assistant() -> AssistantAgent:
     return assistant
 
 
-_assistant = _initialize_assistant()
+_assistant: AssistantAgent | None = None
+
+
+def _get_assistant() -> AssistantAgent:
+    """Lazily initialize and return the assistant agent."""
+    # ruff: noqa: PLW0603
+    global _assistant  # pylint: disable=global-statement
+    if _assistant is None:
+        _assistant = _initialize_assistant()
+    return _assistant
 
 
 def respond(query: str) -> str:
@@ -53,4 +62,4 @@ def respond(query: str) -> str:
     str
         The response from the assistant agent.
     """
-    return _assistant.run(query)
+    return _get_assistant().run(query)
