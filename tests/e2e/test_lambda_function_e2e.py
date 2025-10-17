@@ -29,11 +29,13 @@ def test_no_query(api_url, api_key, query):
     )
 
 
-@pytest.mark.parametrize("query, expected", [("query", "query")])
+@pytest.mark.parametrize(
+    "query, expected", [("What are some synonyms of 'happy'?", "joyful")]
+)
 def test_query(api_url, api_key, query, expected):
-    """Test that if an invalid body is provided, the API response correctly
-    returns a fail message."""
+    """Test that if a valid query is provided, the API response successfully
+    returns a response."""
     response = query2response(api_url, api_key, query)
     assert "status" in response
     assert response["status"] == "success"
-    assert response["data"]["text"] == expected
+    assert expected in response["data"]["text"].lower()
