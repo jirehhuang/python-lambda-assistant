@@ -31,7 +31,7 @@ def test_invalid_body(body):
 def test_success_text():
     """Test that if a valid body with query is provided, the lambda_handler
     correctly returns a success message."""
-    query = "Hello, world!"
+    query = "I need to check the mail."
     response = lambda_handler({"body": {"query": query}}, None)
     assert response["status"] == "success"
-    assert response["data"]["text"] == query
+    assert response["data"]["text"] == "Done."
