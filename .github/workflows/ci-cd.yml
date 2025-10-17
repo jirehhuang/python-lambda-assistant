@@ -153,6 +153,8 @@ jobs:
 
       - name: Deploy to Lambda staging alias
         id: deploy
+        env:
+          ENV_VARS: "MEALIE_API_URL,MEALIE_API_KEY,MEALIE_SHOPPING_LIST_ID,OBSIDIAN_VAULT_OWNER,OBSIDIAN_VAULT_REPOSITORY,OBSIDIAN_VAULT_TOKEN,OPENROUTER_API_KEY"
         run: |
           set -euo pipefail
 
@@ -169,6 +171,20 @@ jobs:
           aws lambda wait function-updated --function-name "${FUNCTION_NAME}"
 
           echo "Deployed version: ${VERSION}"
+
+          # Construct environment variables JSON dynamically
+          ENV_JSON="{"
+          IFS=',' read -ra VARS <<< "$ENV_VARS"
+          for VAR in "${VARS[@]}"; do
+            VALUE=$(printenv "$VAR")
+            ENV_JSON+="\"$VAR\":\"$VALUE\","
+          done
+          ENV_JSON="${ENV_JSON%,}}" # Remove trailing comma and close JSON
+
+          # Update environment variables
+          aws lambda update-function-configuration \
+            --function-name "${FUNCTION_NAME}" \
+            --environment "Variables=$ENV_JSON"
 
           # Create or update staging alias
           if ! aws lambda get-alias --function-name "${FUNCTION_NAME}" --name "${STAGING_ALIAS}" >/dev/null 2>&1; then
@@ -256,6 +272,8 @@ jobs:
 
       - name: Deploy to Lambda prod alias
         id: deploy
+        env:
+          ENV_VARS: "MEALIE_API_URL,MEALIE_API_KEY,MEALIE_SHOPPING_LIST_ID,OBSIDIAN_VAULT_OWNER,OBSIDIAN_VAULT_REPOSITORY,OBSIDIAN_VAULT_TOKEN,OPENROUTER_API_KEY"
         run: |
           set -euo pipefail
 
@@ -272,6 +290,21 @@ jobs:
 
           echo "Deployed version: ${VERSION}"
 
+          # Construct environment variables JSON dynamically
+          ENV_JSON="{"
+          IFS=',' read -ra VARS <<< "$ENV_VARS"
+          for VAR in "${VARS[@]}"; do
+            VALUE=$(printenv "$VAR")
+            ENV_JSON+="\"$VAR\":\"$VALUE\","
+          done
+          ENV_JSON="${ENV_JSON%,}}" # Remove trailing comma and close JSON
+
+          # Update environment variables
+          aws lambda update-function-configuration \
+            --function-name "${FUNCTION_NAME}" \
+            --environment "Variables=$ENV_JSON"
+
+          # Create or update prod alias
           if ! aws lambda get-alias --function-name "${FUNCTION_NAME}" --name "${PROD_ALIAS}" >/dev/null 2>&1; then
             aws lambda create-alias \
               --function-name "${FUNCTION_NAME}" \
