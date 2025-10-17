@@ -1,5 +1,5 @@
 [project]
-name = "python-lambda-template"
+name = "python-lambda-assistant"
 version = "0.1.0"
 description = "Python AWS Lambda template"
 authors = [
