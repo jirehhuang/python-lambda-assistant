@@ -1,18 +1,56 @@
 """Functions and tools for responding to queries."""
 
+import os
+from pathlib import Path
 
-def echo(text: str) -> str:
-    """
-    Repeat text input.
+import instructor
+import jhutils
+import openai
+from dotenv import load_dotenv
+from jhutils.agent import AssistantAgent
+
+# Load environment variables locally
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+
+
+def _initialize_assistant() -> AssistantAgent:
+    """Initialize the assistant agent."""
+    openrouter_client = instructor.from_openai(
+        openai.OpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=os.getenv("OPENROUTER_API_KEY"),
+        )
+    )
+    mealie = jhutils.Mealie(
+        api_url=os.getenv("MEALIE_API_URL", ""),
+        api_key=os.getenv("MEALIE_API_KEY", ""),
+    )
+    obsidian = jhutils.Obsidian(
+        owner=os.getenv("OBSIDIAN_VAULT_OWNER", ""),
+        repository=os.getenv("OBSIDIAN_VAULT_REPOSITORY", ""),
+        branch=os.getenv("OBSIDIAN_VAULT_BRANCH", ""),
+        github_token=os.getenv("OBSIDIAN_VAULT_TOKEN", ""),
+    )
+    assistant = AssistantAgent(
+        client=openrouter_client, mealie=mealie, obsidian=obsidian
+    )
+    return assistant
+
+
+_assistant = _initialize_assistant()
+
+
+def respond(query: str) -> str:
+    """Respond to user query using assistant agent.
 
     Parameters
     ----------
-    text
-        The text to repeat back.
+    query
+        The user query.
 
     Returns
     -------
     str
-        The input text, as is.
+        The response from the assistant agent.
     """
-    return text
+    return _assistant.run(query)

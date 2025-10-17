@@ -4,7 +4,7 @@ import json
 from typing import Any
 
 from .alexa import _text_output, alexa_handler
-from .responder import echo
+from .responder import respond
 from .utils import _make_response
 
 
@@ -41,7 +41,7 @@ def lambda_handler(event: Any, context: Any) -> Any:
             )
 
         result = {
-            "text": echo(text=query),
+            "text": respond(query=query),
         }
         return _make_response(
             data=result,
