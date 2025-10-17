@@ -27,15 +27,10 @@ def _initialize_assistant(bool_prod: bool = True) -> AssistantAgent:
         api_key=os.getenv("MEALIE_API_KEY", ""),
     )
 
-    branch = (
-        os.getenv("OBSIDIAN_VAULT_BRANCH_PROD")
-        if bool_prod
-        else os.getenv("OBSIDIAN_VAULT_BRANCH")
-    )
     obsidian = jhutils.Obsidian(
         owner=os.getenv("OBSIDIAN_VAULT_OWNER", ""),
         repository=os.getenv("OBSIDIAN_VAULT_REPOSITORY", ""),
-        branch=branch or "",
+        branch="main" if bool_prod else "test",
         github_token=os.getenv("OBSIDIAN_VAULT_TOKEN", ""),
     )
 
