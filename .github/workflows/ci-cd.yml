@@ -12,7 +12,7 @@ on:
     branches: [main]
 
 env:
-  FUNCTION_NAME: "python-lambda-template"
+  FUNCTION_NAME: "python-lambda-assistant"
   PYTHON_VERSION: "3.12"
   AWS_REGION: "us-west-1"
   AWS_ACCOUNT_ID: "670469590993"
