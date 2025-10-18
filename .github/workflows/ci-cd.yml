@@ -291,6 +291,26 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Get API URL
+        id: get-api-url
+        run: |
+          set -euo pipefail
+          API_NAME="${FUNCTION_NAME}-api-${{ needs.configure-lambda-env.outputs.alias }}"
+
+          api_id=$(aws apigateway get-rest-apis \
+            --query "items[?name=='${API_NAME}'].id" \
+            --output text)
+
+          if [ -z "$api_id" ] || [ "$api_id" = "None" ]; then
+            echo "❌ API Gateway for ${API_NAME} does not exist. Please create it first."
+            exit 1
+          fi
+
+          url="https://${api_id}.execute-api.${AWS_REGION}.amazonaws.com"
+
+          echo "✅ API URL: $url"
+          echo "api_url=$url" >> "$GITHUB_OUTPUT"
+
       - name: Run E2E tests
         run: |
           poetry install
