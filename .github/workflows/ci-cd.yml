@@ -150,6 +150,7 @@ jobs:
 
     outputs:
       api_url: ${{ steps.get-api-url.outputs.api_url }}
+      alias: ${{ steps.env-vars.outputs.alias }}
 
     steps:
       - uses: actions/checkout@v5
