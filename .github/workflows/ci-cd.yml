@@ -70,6 +70,8 @@ jobs:
 
       - name: Run tests
         run: poetry run pytest
+        env:
+          ALIAS: staging
 
       - name: Check coverage
         run: poetry run python .github/scripts/check_coverage.py --min 95 coverage.xml
@@ -306,5 +308,6 @@ jobs:
       - name: Run E2E tests
         run: poetry run pytest tests/e2e --url "${{ needs.lambda-deploy.outputs.api_url }}/${{ needs.lambda-deploy.outputs.alias }}"
         env:
+          ALIAS: ${{ needs.lambda-deploy.outputs.alias }}
           STAGING_API_KEY: ${{ secrets.STAGING_API_KEY }}
           PROD_API_KEY: ${{ secrets.PROD_API_KEY }}
