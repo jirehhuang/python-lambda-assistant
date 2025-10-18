@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Poetry
-ENV POETRY_VERSION=2.1.4
+ENV POETRY_VERSION=2.2.1
 RUN pip install --no-cache-dir poetry==${POETRY_VERSION}
 
 # Copy project files

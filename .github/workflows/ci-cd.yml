@@ -51,7 +51,7 @@ jobs:
       - name: Install Poetry
         uses: abatilo/actions-poetry@v4
         with:
-          poetry-version: "2.1.4"
+          poetry-version: "2.2.1"
 
       - name: Install dependencies
         run: poetry install
@@ -96,7 +96,7 @@ jobs:
       - name: Install Poetry
         uses: abatilo/actions-poetry@v4
         with:
-          poetry-version: "2.1.4"
+          poetry-version: "2.2.1"
 
       - name: Install deps for packaging
         run: poetry install --only main
