@@ -55,14 +55,6 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Install Poetry
-        uses: abatilo/actions-poetry@v4
-        with:
-          poetry-version: "2.2.1"
-
-      - name: Install deps for packaging
-        run: poetry install --only main
-
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v5
         with:
@@ -81,8 +73,6 @@ jobs:
           ALIAS="staging"
           [ "$BRANCH" = "main" ] && ALIAS="prod"
 
-
-
           # Start JSON
           ENV_JSON="{\"ALIAS\":\"$ALIAS\""
 
@@ -99,7 +89,7 @@ jobs:
           echo "Updating Lambda environment variables:"
           aws lambda update-function-configuration \
             --function-name "${FUNCTION_NAME}" \
-            --environment "Variables=$ENV_JSON"
+            --environment 'Variables=$ENV_JSON'
 
           echo "Waiting for Lambda update..."
           aws lambda wait function-updated --function-name "${FUNCTION_NAME}"
