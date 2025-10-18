@@ -81,20 +81,20 @@ jobs:
           ALIAS="staging"
           [ "$BRANCH" = "main" ] && ALIAS="prod"
 
-          # Build compact JSON for Variables
-          ENV_JSON=$(jq -n --arg alias "$ALIAS" '{ALIAS: $alias}')
+          # Start with ALIAS
+          ENV_KV="ALIAS=$ALIAS"
+
+          # Append other environment variables
           IFS=',' read -ra VARS <<< "$ENV_VARS"
           for VAR in "${VARS[@]}"; do
             VALUE=$(printenv "$VAR")
-            ENV_JSON=$(echo "$ENV_JSON" | jq -c --arg k "$VAR" --arg v "$VALUE" '. + {($k): $v}')
+            ENV_KV+=",${VAR}=$VALUE"
           done
 
           echo "Updating Lambda environment variables..."
           aws lambda update-function-configuration \
             --function-name "${FUNCTION_NAME}" \
-            --environment "Variables=$ENV_JSON"
-
-          echo "alias=${ALIAS}" >> "$GITHUB_OUTPUT"
+            --environment=$ENV_KV
 
           echo "Waiting for Lambda update..."
           aws lambda wait function-updated --function-name "${FUNCTION_NAME}"
