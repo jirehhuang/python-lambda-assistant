@@ -15,7 +15,7 @@ from ask_sdk_core.handler_input import HandlerInput  # noqa: F401
 from ask_sdk_core.skill_builder import SkillBuilder
 from ask_sdk_model import IntentRequest, Response  # noqa: F401
 
-from .responder import echo
+from .responder import respond
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -98,9 +98,11 @@ class GeneralIntentHandler(AbstractRequestHandler):
             ):
                 query = request.intent.slots["query"].value
                 if isinstance(query, str):
-                    speak_output = echo(text=query)
+                    speak_output = respond(query=query)
             if not speak_output:
-                raise ValueError("No valid query provided.")
+                raise ValueError(  # pragma: no cover
+                    "No valid query provided."
+                )
 
         # pylint: disable=broad-exception-caught
         except Exception as e:  # pragma: no cover

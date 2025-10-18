@@ -1,11 +1,12 @@
 """Lambda function handler module."""
 
 import json
+import os
 from typing import Any
 
 from .alexa import _text_output, alexa_handler
-from .responder import echo
-from .utils import _make_response
+from .responder import respond
+from .utils import _extract_lambda_alias, _make_response
 
 
 def lambda_handler(event: Any, context: Any) -> Any:
@@ -16,6 +17,10 @@ def lambda_handler(event: Any, context: Any) -> Any:
             return alexa_handler(event, context)
 
         arn = str(getattr(context, "invoked_function_arn", ""))
+
+        # Set ALIAS environment variable to control downstream behavior
+        alias = _extract_lambda_alias(arn=arn)
+        os.environ["ALIAS"] = alias
 
         # Get body and convert str to dict if necessary
         body = event.get("body", event)
@@ -41,7 +46,7 @@ def lambda_handler(event: Any, context: Any) -> Any:
             )
 
         result = {
-            "text": echo(text=query),
+            "text": respond(query=query),
         }
         return _make_response(
             data=result,

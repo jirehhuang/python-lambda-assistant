@@ -104,11 +104,23 @@ def test_launch_intent(launch_intent_payload):
     )
 
 
-@pytest.mark.parametrize("query", ["Example text", ""])
-def test_general_intent(query):
-    """Test that invoking GeneralIntent returns the expected response."""
+def test_general_intent_add_task():
+    """Test that invoking the add tasks tool via GeneralIntent returns the
+    expected response."""
+    query = "I should text Joshua back."
     response = lambda_handler(make_general_intent_payload(query), None)
-    assert query in response["response"]["outputSpeech"]["ssml"]
+    assert "Done." in response["response"]["outputSpeech"]["ssml"]
+
+
+def test_general_intent_respond():
+    """Test that invoking the respond tool via GeneralIntent returns the
+    expected response."""
+    query = (
+        "According to the Westminster Shorter Catechism, what is the chief "
+        "end of man?"
+    )
+    response = lambda_handler(make_general_intent_payload(query), None)
+    assert "glorify God" in response["response"]["outputSpeech"]["ssml"]
 
 
 def test_help_intent():

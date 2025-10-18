@@ -68,3 +68,16 @@ def _make_response(
         raise ValueError("Response is not JSON serializable") from e
 
     return response
+
+
+def _extract_lambda_alias(arn) -> str:
+    """Return the current Lambda alias ('staging', 'prod', etc.)."""
+    parts = arn.split(":")
+    n_parts = 7
+    if len(parts) > n_parts:
+        # Aliases or version numbers appear after the function name
+        alias_or_version = parts[-1]
+        # Filter out numeric versions (e.g. "$LATEST" or "42")
+        if alias_or_version and not alias_or_version.isdigit():
+            return alias_or_version
+    return "latest"
