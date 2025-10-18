@@ -110,11 +110,11 @@ jobs:
       - name: Ensure ECR repository exists
         run: |
           set -euo pipefail
-          if ! aws ecr describe-repositories --repository-names "${ECR_REPO}" >/dev/null 2>&1; then
-            echo "Creating ECR repository ${ECR_REPO}"
-            aws ecr create-repository --repository-name "${ECR_REPO}"
+          if ! aws ecr describe-repositories --repository-names "${FUNCTION_NAME}" >/dev/null 2>&1; then
+            echo "Creating ECR repository ${FUNCTION_NAME}"
+            aws ecr create-repository --repository-name "${FUNCTION_NAME}"
           else
-            echo "ECR repository ${ECR_REPO} already exists"
+            echo "ECR repository ${FUNCTION_NAME} already exists"
           fi
 
       - name: Log in to Amazon ECR
@@ -126,7 +126,7 @@ jobs:
         run: |
           set -euo pipefail
           IMAGE_TAG=${GITHUB_SHA::7}
-          ECR_URI="${{ steps.login-ecr.outputs.registry }}/${ECR_REPO}:${IMAGE_TAG}"
+          ECR_URI="${{ steps.login-ecr.outputs.registry }}/${FUNCTION_NAME}:${IMAGE_TAG}"
           echo "Building Docker image ${ECR_URI}"
           docker build -t "${ECR_URI}" .
           docker push "${ECR_URI}"
