@@ -81,12 +81,12 @@ jobs:
           ALIAS="staging"
           [ "$BRANCH" = "main" ] && ALIAS="prod"
 
-          # Build Variables JSON safely
+          # Build compact JSON for Variables
           ENV_JSON=$(jq -n --arg alias "$ALIAS" '{ALIAS: $alias}')
           IFS=',' read -ra VARS <<< "$ENV_VARS"
           for VAR in "${VARS[@]}"; do
             VALUE=$(printenv "$VAR")
-            ENV_JSON=$(echo "$ENV_JSON" | jq --arg k "$VAR" --arg v "$VALUE" '. + {($k): $v}')
+            ENV_JSON=$(echo "$ENV_JSON" | jq -c --arg k "$VAR" --arg v "$VALUE" '. + {($k): $v}')
           done
 
           echo "Updating Lambda environment variables..."
