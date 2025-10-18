@@ -74,13 +74,17 @@ jobs:
       - name: Check coverage
         run: poetry run python .github/scripts/check_coverage.py --min 95 coverage.xml
 
-  deploy-staging:
-    if: github.event_name == 'pull_request'
+  deploy:
     needs: [lint-and-tests]
     runs-on: ubuntu-latest
     concurrency:
-      group: staging-deploy
+      group: lambda-deploy
       cancel-in-progress: true
+
+    permissions:
+      id-token: write
+      contents: read
+
     steps:
       - uses: actions/checkout@v5
 
@@ -103,248 +107,107 @@ jobs:
           role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/${{ env.GH_OIDC_ROLE_NAME }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Check if Lambda execution role exists and has required policy
+      - name: Ensure ECR repository exists
         run: |
           set -euo pipefail
-
-          ROLE_NAME="${FUNCTION_NAME}-role"
-
-          # Check that the role exists
-          if ! aws iam get-role --role-name "${ROLE_NAME}" >/dev/null 2>&1; then
-            echo "❌ Execution role ${ROLE_NAME} does not exist. Please create it first."
-            exit 1
-          fi
-          echo "✅ Role ${ROLE_NAME} exists"
-
-          # Check for AWSLambdaBasicExecutionRole managed policy attachment
-          attached=$(aws iam list-attached-role-policies --role-name "${ROLE_NAME}" \
-                    --query 'AttachedPolicies[*].PolicyName' --output text)
-
-          if echo "$attached" | grep -q "AWSLambdaBasicExecutionRole"; then
-            echo "✅ Role has AWSLambdaBasicExecutionRole attached"
+          if ! aws ecr describe-repositories --repository-names "${ECR_REPO}" >/dev/null 2>&1; then
+            echo "Creating ECR repository ${ECR_REPO}"
+            aws ecr create-repository --repository-name "${ECR_REPO}"
           else
-            echo "❌ Role is missing AWSLambdaBasicExecutionRole"
-            exit 1
+            echo "ECR repository ${ECR_REPO} already exists"
           fi
 
-      - name: Build Lambda ZIP
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag, and push Docker image
+        id: build-image
         run: |
-          set -e
-          BUILD_DIR=".package"
-          rm -rf "$BUILD_DIR" lambda.zip
-          mkdir -p "$BUILD_DIR"
-          poetry self add poetry-plugin-export
-          poetry export -f requirements.txt --without-hashes | pip install -r /dev/stdin -t "$BUILD_DIR"
-          cp -r lambda_function/ "$BUILD_DIR"/
-          cd "$BUILD_DIR" && zip -r ../lambda.zip .
+          set -euo pipefail
+          IMAGE_TAG=${GITHUB_SHA::7}
+          ECR_URI="${{ steps.login-ecr.outputs.registry }}/${ECR_REPO}:${IMAGE_TAG}"
+          echo "Building Docker image ${ECR_URI}"
+          docker build -t "${ECR_URI}" .
+          docker push "${ECR_URI}"
+          echo "image_uri=${ECR_URI}" >> "$GITHUB_OUTPUT"
 
       - name: Ensure Lambda function exists
         run: |
           set -euo pipefail
           ROLE_NAME="${FUNCTION_NAME}-role"
+          IMAGE_URI=${{ steps.build-image.outputs.image_uri }}
 
           if ! aws lambda get-function --function-name "${FUNCTION_NAME}" >/dev/null 2>&1; then
-            echo "Creating Lambda function ${FUNCTION_NAME}"
+            echo "Creating Lambda function ${FUNCTION_NAME} with image ${IMAGE_URI}"
             aws lambda create-function \
               --function-name "${FUNCTION_NAME}" \
-              --runtime "python${PYTHON_VERSION}" \
-              --role "arn:aws:iam::${AWS_ACCOUNT_ID}:role/${ROLE_NAME}" \
-              --handler lambda_function.lambda_function.lambda_handler \
-              --zip-file fileb://lambda.zip
-
-            echo "Waiting for Lambda function to become active..."
-            aws lambda wait function-active --function-name "${FUNCTION_NAME}"
+              --package-type Image \
+              --code ImageUri="${IMAGE_URI}" \
+              --role "arn:aws:iam::${AWS_ACCOUNT_ID}:role/${ROLE_NAME}"
           else
             echo "Lambda function ${FUNCTION_NAME} already exists"
           fi
 
-      - name: Deploy to Lambda staging alias
-        id: deploy
-        env:
-          ENV_VARS: "MEALIE_API_URL,MEALIE_API_KEY,MEALIE_SHOPPING_LIST_ID,OBSIDIAN_VAULT_OWNER,OBSIDIAN_VAULT_REPOSITORY,OBSIDIAN_VAULT_TOKEN,OPENROUTER_API_KEY"
+      - name: Update Lambda function to new image
+        run: |
+          IMAGE_URI=${{ steps.build-image.outputs.image_uri }}
+          aws lambda update-function-code \
+            --function-name "${FUNCTION_NAME}" \
+            --image-uri "${IMAGE_URI}"
+
+          echo "Waiting for Lambda update..."
+          aws lambda wait function-updated --function-name "${FUNCTION_NAME}"
+
+      - name: Set environment variables and alias
+        id: env-vars
         run: |
           set -euo pipefail
 
-          STAGING_ALIAS="staging"
+          # Determine alias (staging vs prod)
+          BRANCH="${GITHUB_REF_NAME}"
+          if [ "$BRANCH" = "main" ]; then
+            ALIAS="prod"
+          else
+            ALIAS="staging"
+          fi
 
-          # Update Lambda function code and publish a new version
-          VERSION=$(aws lambda update-function-code \
-            --function-name "${FUNCTION_NAME}" \
-            --zip-file fileb://lambda.zip \
-            --publish \
-            --query 'Version' --output text)
-
-          echo "Waiting for Lambda function version ${VERSION} to become active..."
-          aws lambda wait function-updated --function-name "${FUNCTION_NAME}"
-
-          echo "Deployed version: ${VERSION}"
-
-          # Construct environment variables JSON dynamically
+          # Construct environment JSON
           ENV_JSON="{"
-          IFS=',' read -ra VARS <<< "$ENV_VARS"
+          IFS=',' read -ra VARS <<< "${ENV_VARS}"
           for VAR in "${VARS[@]}"; do
             VALUE=$(printenv "$VAR")
             ENV_JSON+="\"$VAR\":\"$VALUE\","
           done
-          ENV_JSON="${ENV_JSON%,}}" # Remove trailing comma and close JSON
+          ENV_JSON+="\"ALIAS\":\"$ALIAS\""
+          ENV_JSON="${ENV_JSON}}"
 
-          # Update environment variables
           aws lambda update-function-configuration \
             --function-name "${FUNCTION_NAME}" \
             --environment "Variables=$ENV_JSON"
 
-          # Create or update staging alias
-          if ! aws lambda get-alias --function-name "${FUNCTION_NAME}" --name "${STAGING_ALIAS}" >/dev/null 2>&1; then
+          echo "alias=${ALIAS}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish new version and update alias
+        run: |
+          set -euo pipefail
+          ALIAS=${{ steps.env-vars.outputs.alias }}
+
+          VERSION=$(aws lambda publish-version --function-name "${FUNCTION_NAME}" --query 'Version' --output text)
+
+          if ! aws lambda get-alias --function-name "${FUNCTION_NAME}" --name "${ALIAS}" >/dev/null 2>&1; then
             aws lambda create-alias \
               --function-name "${FUNCTION_NAME}" \
-              --name "${STAGING_ALIAS}" \
+              --name "${ALIAS}" \
               --function-version "${VERSION}"
           else
             aws lambda update-alias \
               --function-name "${FUNCTION_NAME}" \
-              --name "${STAGING_ALIAS}" \
+              --name "${ALIAS}" \
               --function-version "${VERSION}"
           fi
 
-          echo "alias_version=${VERSION}" >> "$GITHUB_OUTPUT"
-
-      - name: Get staging alias API URL
-        id: get-api-url
-        run: |
-          set -euo pipefail
-          API_NAME="${FUNCTION_NAME}-api-staging"
-
-          # echo "Looking up API named: $API_NAME"
-          # aws apigateway get-rest-apis --query "items[].{id:id,name:name}" --output table
-
-          api_id=$(aws apigateway get-rest-apis \
-            --query "items[?name=='${API_NAME}'].id" \
-            --output text)
-
-          if [ -z "$api_id" ] || [ "$api_id" = "None" ]; then
-            echo "❌ API Gateway for ${API_NAME} does not exist. Please create it first."
-            exit 1
-          fi
-
-          url="https://${api_id}.execute-api.${AWS_REGION}.amazonaws.com"
-
-          echo "✅ Staging API URL: $url"
-          echo "api_url=$url" >> "$GITHUB_OUTPUT"
-
-      - name: Run staging E2E tests
-        run: |
-          poetry install
-          poetry run pytest tests/e2e --url "${{ steps.get-api-url.outputs.api_url }}/staging"
-        env:
-          STAGING_API_KEY: ${{ secrets.STAGING_API_KEY }}
-
-  deploy-prod:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    concurrency:
-      group: prod-deploy
-      cancel-in-progress: true
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install Poetry
-        uses: abatilo/actions-poetry@v4
-        with:
-          poetry-version: "2.1.4"
-
-      - name: Install deps for packaging
-        run: poetry install --only main
-
-      - name: Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v5
-        with:
-          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/${{ env.GH_OIDC_ROLE_NAME }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Build Lambda ZIP
-        run: |
-          set -e
-          BUILD_DIR=".package"
-          rm -rf "$BUILD_DIR" lambda.zip
-          mkdir -p "$BUILD_DIR"
-          poetry self add poetry-plugin-export
-          poetry export -f requirements.txt --without-hashes | pip install -r /dev/stdin -t "$BUILD_DIR"
-          cp -r lambda_function/ "$BUILD_DIR"/
-          cd "$BUILD_DIR" && zip -r ../lambda.zip .
-
-      - name: Deploy to Lambda prod alias
-        id: deploy
-        env:
-          ENV_VARS: "MEALIE_API_URL,MEALIE_API_KEY,MEALIE_SHOPPING_LIST_ID,OBSIDIAN_VAULT_OWNER,OBSIDIAN_VAULT_REPOSITORY,OBSIDIAN_VAULT_TOKEN,OPENROUTER_API_KEY"
-        run: |
-          set -euo pipefail
-
-          PROD_ALIAS="prod"
-
-          VERSION=$(aws lambda update-function-code \
-            --function-name "${FUNCTION_NAME}" \
-            --zip-file fileb://lambda.zip \
-            --publish \
-            --query 'Version' --output text)
-
-          echo "Waiting for Lambda function version ${VERSION} to become active..."
-          aws lambda wait function-updated --function-name "${FUNCTION_NAME}"
-
-          echo "Deployed version: ${VERSION}"
-
-          # Construct environment variables JSON dynamically
-          ENV_JSON="{"
-          IFS=',' read -ra VARS <<< "$ENV_VARS"
-          for VAR in "${VARS[@]}"; do
-            VALUE=$(printenv "$VAR")
-            ENV_JSON+="\"$VAR\":\"$VALUE\","
-          done
-          ENV_JSON="${ENV_JSON%,}}" # Remove trailing comma and close JSON
-
-          # Update environment variables
-          aws lambda update-function-configuration \
-            --function-name "${FUNCTION_NAME}" \
-            --environment "Variables=$ENV_JSON"
-
-          # Create or update prod alias
-          if ! aws lambda get-alias --function-name "${FUNCTION_NAME}" --name "${PROD_ALIAS}" >/dev/null 2>&1; then
-            aws lambda create-alias \
-              --function-name "${FUNCTION_NAME}" \
-              --name "${PROD_ALIAS}" \
-              --function-version "${VERSION}"
-          else
-            aws lambda update-alias \
-              --function-name "${FUNCTION_NAME}" \
-              --name "${PROD_ALIAS}" \
-              --function-version "${VERSION}"
-          fi
-
-          echo "alias_version=${VERSION}" >> "$GITHUB_OUTPUT"
-
-      - name: Get prod alias API URL
-        id: get-api-url
-        run: |
-          set -euo pipefail
-          API_NAME="${FUNCTION_NAME}-api-prod"
-
-          api_id=$(aws apigateway get-rest-apis \
-            --query "items[?name=='${API_NAME}'].id" \
-            --output text)
-
-          if [ -z "$api_id" ] || [ "$api_id" = "None" ]; then
-            echo "❌ API Gateway for ${API_NAME} does not exist. Please create it first."
-            exit 1
-          fi
-
-          url="https://${api_id}.execute-api.${AWS_REGION}.amazonaws.com"
-
-          echo "✅ Prod API URL: $url"
-          echo "api_url=$url" >> "$GITHUB_OUTPUT"
+          echo "✅ Updated ${ALIAS} alias to version ${VERSION}"
 
       - name: Run prod E2E tests
         run: |
