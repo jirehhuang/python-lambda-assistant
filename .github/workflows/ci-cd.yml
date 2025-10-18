@@ -64,7 +64,7 @@ jobs:
           SCORE=$(poetry run pylint lambda_function --exit-zero --score=y | grep "Your code has been rated at" | awk '{print $7}' | cut -d'/' -f1)
           echo "Pylint score: $SCORE"
           if [ -n "$SCORE" ] && ! python -c "exit(0 if float('$SCORE') >= 10.0 else 1)"; then
-            echo "ERROR: Pylint score < 10.0"
+            echo "❌ ERROR: Pylint score < 10.0"
             exit 1
           fi
 
@@ -156,13 +156,32 @@ jobs:
 
       - name: Update Lambda function to new image
         run: |
+          set -euo pipefail
           IMAGE_URI=${{ steps.build-image.outputs.image_uri }}
+
+          echo "Checking package type for ${FUNCTION_NAME}..."
+          PACKAGE_TYPE=$(aws lambda get-function-configuration \
+            --function-name "${FUNCTION_NAME}" \
+            --query 'PackageType' \
+            --output text)
+
+          if [ "$PACKAGE_TYPE" != "Image" ]; then
+            echo "❌ ERROR: Lambda function ${FUNCTION_NAME} is currently using package type '${PACKAGE_TYPE}'."
+            echo "It must be recreated as an Image-based Lambda before deployment."
+            echo "Please delete it manually and rerun this workflow:"
+            echo "  aws lambda delete-function --function-name ${FUNCTION_NAME}"
+            exit 1
+          fi
+
+          echo "Updating Lambda ${FUNCTION_NAME} with new image ${IMAGE_URI}..."
           aws lambda update-function-code \
             --function-name "${FUNCTION_NAME}" \
             --image-uri "${IMAGE_URI}"
 
           echo "Waiting for Lambda update..."
           aws lambda wait function-updated --function-name "${FUNCTION_NAME}"
+
+          echo "✅ Lambda update complete."
 
       - name: Set environment variables and alias
         id: env-vars
