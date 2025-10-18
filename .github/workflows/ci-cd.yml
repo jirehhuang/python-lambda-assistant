@@ -218,12 +218,13 @@ jobs:
           BRANCH="${GITHUB_REF_NAME}"
           ALIAS="staging"
           [ "$BRANCH" = "main" ] && ALIAS="prod"
+          echo "alias=${ALIAS}" >> "$GITHUB_OUTPUT"
 
-          # Start JSON with function name and alias
-          ENV_JSON=$(jq -n --arg fn "$FUNCTION_NAME" --arg alias "$ALIAS" \
-            '{FunctionName: $fn, Environment: {Variables: {ALIAS: $alias}}}')
+          # Start JSON with function name
+          ENV_JSON=$(jq -n --arg fn "$FUNCTION_NAME" \
+            '{FunctionName: $fn, Environment: {Variables: {}}}')
 
-          # Add other environment variables dynamically
+          # Add environment variables dynamically
           IFS=',' read -ra VARS <<< "$ENV_VARS"
           for VAR in "${VARS[@]}"; do
               VALUE=$(printenv "$VAR")
@@ -235,8 +236,6 @@ jobs:
           echo "Updating Lambda environment variables:"
           aws lambda update-function-configuration \
             --cli-input-json "$ENV_JSON"
-
-          echo "alias=${ALIAS}" >> "$GITHUB_OUTPUT"
 
           echo "Waiting for Lambda update..."
           aws lambda wait function-updated --function-name "${FUNCTION_NAME}"
