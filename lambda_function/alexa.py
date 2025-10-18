@@ -100,7 +100,9 @@ class GeneralIntentHandler(AbstractRequestHandler):
                 if isinstance(query, str):
                     speak_output = respond(query=query)
             if not speak_output:
-                raise ValueError("No valid query provided.")
+                raise ValueError(  # pragma: no cover
+                    "No valid query provided."
+                )
 
         # pylint: disable=broad-exception-caught
         except Exception as e:  # pragma: no cover
