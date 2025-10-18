@@ -18,6 +18,7 @@ RUN pip install --no-cache-dir poetry==${POETRY_VERSION}
 # Copy project files
 COPY pyproject.toml poetry.lock ./
 # Export dependencies to requirements.txt (faster install in Lambda)
+RUN poetry self add poetry-plugin-export
 RUN poetry export -f requirements.txt --without-hashes -o requirements.txt
 
 # Install dependencies into a local folder (for layering)
