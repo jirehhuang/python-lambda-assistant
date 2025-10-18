@@ -73,20 +73,21 @@ jobs:
           ALIAS="staging"
           [ "$BRANCH" = "main" ] && ALIAS="prod"
 
-          ENV_JSON=$(jq -n --arg alias "$ALIAS" \
-            '{
-              Environment: {"ALIAS": $alias}
-            }')
+          # Start JSON with function name and alias
+          ENV_JSON=$(jq -n --arg fn "$FUNCTION_NAME" --arg alias "$ALIAS" \
+            '{FunctionName: $fn, Environment: {Variables: {ALIAS: $alias}}}')
 
-          for VAR in $(echo "$ENV_VARS" | tr ',' ' '); do
+          # Add other environment variables dynamically
+          IFS=',' read -ra VARS <<< "$ENV_VARS"
+          for VAR in "${VARS[@]}"; do
               VALUE=$(printenv "$VAR")
-              # Use jq to add dynamically
-              ENV_JSON=$(echo "$ENV_JSON" | jq --arg k "$VAR" --arg v "$VALUE" '.Variables[$k]=$v')
+              # Escape quotes in VALUE
+              VALUE_ESCAPED=$(echo "$VALUE" | sed 's/"/\\"/g')
+              ENV_JSON=$(echo "$ENV_JSON" | jq --arg k "$VAR" --arg v "$VALUE_ESCAPED" '.Environment.Variables[$k]=$v')
           done
 
           echo "Updating Lambda environment variables:"
           aws lambda update-function-configuration \
-            --function-name "$FUNCTION_NAME" \
             --cli-input-json "$ENV_JSON"
 
           echo "Waiting for Lambda update..."
