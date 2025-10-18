@@ -190,7 +190,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Determine alias (staging vs prod)
+          # Determine alias
           BRANCH="${GITHUB_REF_NAME}"
           if [ "$BRANCH" = "main" ]; then
             ALIAS="prod"
@@ -198,19 +198,26 @@ jobs:
             ALIAS="staging"
           fi
 
-          # Construct environment JSON
+          # Construct environment JSON dynamically
           ENV_JSON="{\"ALIAS\":\"$ALIAS\""
-          for VAR in $(echo $ENV_VARS | tr ',' ' '); do
+          IFS=',' read -ra VARS <<< "$ENV_VARS"
+          for VAR in "${VARS[@]}"; do
             VALUE=$(printenv "$VAR")
             ENV_JSON+=",\"$VAR\":\"$VALUE\""
           done
           ENV_JSON+="}"
 
+          echo "Updating Lambda environment variables..."
           aws lambda update-function-configuration \
             --function-name "${FUNCTION_NAME}" \
-            --environment Variables="$ENV_JSON"
+            --environment "Variables=$ENV_JSON"
 
           echo "alias=${ALIAS}" >> "$GITHUB_OUTPUT"
+
+          echo "Waiting for Lambda update..."
+          aws lambda wait function-updated --function-name "${FUNCTION_NAME}"
+
+          echo "✅ Lambda update complete."
 
       - name: Publish new version and update alias
         run: |
