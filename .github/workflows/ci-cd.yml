@@ -145,8 +145,13 @@ jobs:
               --package-type Image \
               --code ImageUri="${IMAGE_URI}" \
               --role "arn:aws:iam::${AWS_ACCOUNT_ID}:role/${ROLE_NAME}"
+
+            echo "Waiting for Lambda update..."
+            aws lambda wait function-updated --function-name "${FUNCTION_NAME}"
+
+            echo "✅ Lambda function ${FUNCTION_NAME} successfully created."
           else
-            echo "Lambda function ${FUNCTION_NAME} already exists"
+            echo "✅ Lambda function ${FUNCTION_NAME} already exists"
           fi
 
       - name: Update Lambda function to new image
