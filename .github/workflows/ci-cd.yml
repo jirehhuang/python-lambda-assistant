@@ -199,18 +199,16 @@ jobs:
           fi
 
           # Construct environment JSON
-          ENV_JSON="{"
-          IFS=',' read -ra VARS <<< "${ENV_VARS}"
-          for VAR in "${VARS[@]}"; do
+          ENV_JSON="{\"ALIAS\":\"$ALIAS\""
+          for VAR in $(echo $ENV_VARS | tr ',' ' '); do
             VALUE=$(printenv "$VAR")
-            ENV_JSON+="\"$VAR\":\"$VALUE\","
+            ENV_JSON+=",\"$VAR\":\"$VALUE\""
           done
-          ENV_JSON+="\"ALIAS\":\"$ALIAS\""
-          ENV_JSON="${ENV_JSON}}"
+          ENV_JSON+="}"
 
           aws lambda update-function-configuration \
             --function-name "${FUNCTION_NAME}" \
-            --environment "Variables=$ENV_JSON"
+            --environment Variables="$ENV_JSON"
 
           echo "alias=${ALIAS}" >> "$GITHUB_OUTPUT"
 
