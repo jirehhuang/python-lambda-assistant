@@ -18,7 +18,8 @@ class AssistantManager:
 
     def __init__(self):
         """Initialize the manager with production mode flag."""
-        self._bool_prod = os.getenv("ALIAS") == "prod"
+        alias = os.getenv("ALIAS", "prod")
+        self._bool_prod = alias == "prod"
         self._client: instructor.Instructor | None = None
         self._mealie: jhutils.Mealie | None = None
         self._obsidian: jhutils.Obsidian | None = None
