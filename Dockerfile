@@ -6,9 +6,9 @@ FROM python:3.12-slim AS builder
 # Set working directory
 WORKDIR /app
 
-# Install system deps needed for building Python packages
+# Install system deps needed for installing and building Python packages
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc g++ curl build-essential \
+    gcc g++ curl build-essential git \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Poetry
