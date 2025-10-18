@@ -37,7 +37,45 @@ jobs:
         with:
           requireScope: false
 
+  lint-and-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Poetry
+        uses: abatilo/actions-poetry@v4
+        with:
+          poetry-version: "2.1.4"
+
+      - name: Install dependencies
+        run: poetry install
+
+      - name: Run pre-commit
+        run: poetry run pre-commit run --all-files
+
+      - name: Run pylint
+        run: |
+          SCORE=$(poetry run pylint lambda_function --exit-zero --score=y | grep "Your code has been rated at" | awk '{print $7}' | cut -d'/' -f1)
+          echo "Pylint score: $SCORE"
+          if [ -n "$SCORE" ] && ! python -c "exit(0 if float('$SCORE') >= 10.0 else 1)"; then
+            echo "❌ ERROR: Pylint score < 10.0"
+            exit 1
+          fi
+
+      - name: Run tests
+        run: poetry run pytest
+
+      - name: Check coverage
+        run: poetry run python .github/scripts/check_coverage.py --min 95 coverage.xml
+
   deploy:
+    needs: [lint-and-tests]
     runs-on: ubuntu-latest
     concurrency:
       group: lambda-deploy
@@ -55,11 +93,95 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
+      - name: Install Poetry
+        uses: abatilo/actions-poetry@v4
+        with:
+          poetry-version: "2.1.4"
+
+      - name: Install deps for packaging
+        run: poetry install --only main
+
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v5
         with:
           role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/${{ env.GH_OIDC_ROLE_NAME }}
           aws-region: ${{ env.AWS_REGION }}
+
+      - name: Ensure ECR repository exists
+        run: |
+          set -euo pipefail
+          if ! aws ecr describe-repositories --repository-names "${FUNCTION_NAME}" >/dev/null 2>&1; then
+            echo "Creating ECR repository ${FUNCTION_NAME}"
+            aws ecr create-repository --repository-name "${FUNCTION_NAME}"
+          else
+            echo "ECR repository ${FUNCTION_NAME} already exists"
+          fi
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag, and push Docker image
+        id: build-image
+        run: |
+          set -euo pipefail
+          IMAGE_TAG=${GITHUB_SHA::7}
+          ECR_URI="${{ steps.login-ecr.outputs.registry }}/${FUNCTION_NAME}:${IMAGE_TAG}"
+          echo "Building Docker image ${ECR_URI}"
+          docker build -t "${ECR_URI}" .
+          docker push "${ECR_URI}"
+          echo "image_uri=${ECR_URI}" >> "$GITHUB_OUTPUT"
+
+      - name: Ensure Lambda function exists
+        run: |
+          set -euo pipefail
+          ROLE_NAME="${FUNCTION_NAME}-role"
+          IMAGE_URI=${{ steps.build-image.outputs.image_uri }}
+
+          if ! aws lambda get-function --function-name "${FUNCTION_NAME}" >/dev/null 2>&1; then
+            echo "Creating Lambda function ${FUNCTION_NAME} with image ${IMAGE_URI}"
+            aws lambda create-function \
+              --function-name "${FUNCTION_NAME}" \
+              --package-type Image \
+              --code ImageUri="${IMAGE_URI}" \
+              --role "arn:aws:iam::${AWS_ACCOUNT_ID}:role/${ROLE_NAME}"
+
+            echo "Waiting for Lambda update..."
+            aws lambda wait function-updated --function-name "${FUNCTION_NAME}"
+
+            echo "✅ Lambda function ${FUNCTION_NAME} successfully created."
+          else
+            echo "✅ Lambda function ${FUNCTION_NAME} already exists"
+          fi
+
+      - name: Update Lambda function to new image
+        run: |
+          set -euo pipefail
+          IMAGE_URI=${{ steps.build-image.outputs.image_uri }}
+
+          echo "Checking package type for ${FUNCTION_NAME}..."
+          PACKAGE_TYPE=$(aws lambda get-function-configuration \
+            --function-name "${FUNCTION_NAME}" \
+            --query 'PackageType' \
+            --output text)
+
+          if [ "$PACKAGE_TYPE" != "Image" ]; then
+            echo "❌ ERROR: Lambda function ${FUNCTION_NAME} is currently using package type '${PACKAGE_TYPE}'."
+            echo "It must be recreated as an Image-based Lambda before deployment."
+            echo "Please delete it manually and rerun this workflow:"
+            echo "  aws lambda delete-function --function-name ${FUNCTION_NAME}"
+            exit 1
+          fi
+
+          echo "Updating Lambda ${FUNCTION_NAME} with new image ${IMAGE_URI}..."
+          aws lambda update-function-code \
+            --function-name "${FUNCTION_NAME}" \
+            --image-uri "${IMAGE_URI}"
+
+          echo "Waiting for Lambda update..."
+          aws lambda wait function-updated --function-name "${FUNCTION_NAME}"
+
+          echo "✅ Lambda update complete."
 
       - name: Set environment variables and alias
         id: env-vars
@@ -89,6 +211,8 @@ jobs:
           echo "Updating Lambda environment variables:"
           aws lambda update-function-configuration \
             --cli-input-json "$ENV_JSON"
+
+          echo "alias=${ALIAS}" >> "$GITHUB_OUTPUT"
 
           echo "Waiting for Lambda update..."
           aws lambda wait function-updated --function-name "${FUNCTION_NAME}"
