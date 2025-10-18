@@ -94,7 +94,7 @@ jobs:
           echo "Updating Lambda environment variables..."
           aws lambda update-function-configuration \
             --function-name "${FUNCTION_NAME}" \
-            --environment=$ENV_KV
+            --environment Variables=$ENV_KV
 
           echo "Waiting for Lambda update..."
           aws lambda wait function-updated --function-name "${FUNCTION_NAME}"
