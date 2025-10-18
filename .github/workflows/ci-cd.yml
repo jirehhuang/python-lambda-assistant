@@ -198,33 +198,35 @@ jobs:
             ALIAS="staging"
           fi
 
-          # Start JSON object
+          # Build JSON dictionary
           ENV_JSON="{\"ALIAS\":\"$ALIAS\""
-
-          # Add other environment variables
           IFS=',' read -ra VARS <<< "$ENV_VARS"
           for VAR in "${VARS[@]}"; do
             VALUE=$(printenv "$VAR")
-            # Escape quotes if any
-            VALUE_ESCAPED=$(printf '%s' "$VALUE" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read())[1:-1])')
-            ENV_JSON+=",\"$VAR\":\"$VALUE_ESCAPED\""
+            # Escape special chars
+            ESCAPED=$(printf '%s' "$VALUE" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read())[1:-1])')
+            ENV_JSON+=",\"$VAR\":\"$ESCAPED\""
           done
           ENV_JSON+="}"
-
-          # Wrap in Variables key
           ENV_JSON_FULL="{\"Variables\":$ENV_JSON}"
 
+          # Write to temporary file
+          TMP_FILE=$(mktemp)
+          echo "$ENV_JSON_FULL" > "$TMP_FILE"
+
+          # Update Lambda
           echo "Updating Lambda environment variables..."
           aws lambda update-function-configuration \
             --function-name "${FUNCTION_NAME}" \
-            --cli-input-json <(echo "$ENV_JSON_FULL")
+            --cli-input-json file://"$TMP_FILE"
 
-          echo "alias=${ALIAS}" >> "$GITHUB_OUTPUT"
+          # Delete temp file immediately
+          rm -f "$TMP_FILE"
 
           echo "Waiting for Lambda update..."
           aws lambda wait function-updated --function-name "${FUNCTION_NAME}"
 
-          echo "✅ Lambda update complete."
+          echo "✅ Lambda environment variables updated."
 
       - name: Publish new version and update alias
         run: |
