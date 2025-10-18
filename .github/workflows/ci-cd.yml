@@ -74,17 +74,13 @@ jobs:
       - name: Check coverage
         run: poetry run python .github/scripts/check_coverage.py --min 95 coverage.xml
 
-  deploy:
-    needs: [lint-and-tests]
+  setup-env:
     runs-on: ubuntu-latest
-    concurrency:
-      group: lambda-deploy
-      cancel-in-progress: true
-
     permissions:
-      id-token: write
       contents: read
-
+    needs: lint-and-tests
+    outputs:
+      python-ready: true
     steps:
       - uses: actions/checkout@v5
 
@@ -101,11 +97,36 @@ jobs:
       - name: Install deps for packaging
         run: poetry install --only main
 
+  aws-auth:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    needs: setup-env
+    outputs:
+      aws-ready: true
+    steps:
+      - uses: actions/checkout@v5
+
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v5
         with:
           role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/${{ env.GH_OIDC_ROLE_NAME }}
           aws-region: ${{ env.AWS_REGION }}
+
+  build-and-push-image:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: lambda-deploy
+      cancel-in-progress: true
+    permissions:
+      id-token: write
+      contents: read
+    needs: aws-auth
+    outputs:
+      image-uri: ${{ steps.build-image.outputs.image_uri }}
+    steps:
+      - uses: actions/checkout@v5
 
       - name: Ensure ECR repository exists
         run: |
@@ -132,11 +153,25 @@ jobs:
           docker push "${ECR_URI}"
           echo "image_uri=${ECR_URI}" >> "$GITHUB_OUTPUT"
 
+  deploy-lambda:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: lambda-deploy
+      cancel-in-progress: true
+    permissions:
+      id-token: write
+      contents: read
+    needs: build-and-push-image
+    outputs:
+      lambda-exists: true
+    steps:
+      - uses: actions/checkout@v5
+
       - name: Ensure Lambda function exists
         run: |
           set -euo pipefail
           ROLE_NAME="${FUNCTION_NAME}-role"
-          IMAGE_URI=${{ steps.build-image.outputs.image_uri }}
+          IMAGE_URI=${{ needs.build-and-push-image.outputs.image-uri }}
 
           if ! aws lambda get-function --function-name "${FUNCTION_NAME}" >/dev/null 2>&1; then
             echo "Creating Lambda function ${FUNCTION_NAME} with image ${IMAGE_URI}"
@@ -157,31 +192,36 @@ jobs:
       - name: Update Lambda function to new image
         run: |
           set -euo pipefail
-          IMAGE_URI=${{ steps.build-image.outputs.image_uri }}
+          IMAGE_URI=${{ needs.build-and-push-image.outputs.image-uri }}
 
-          echo "Checking package type for ${FUNCTION_NAME}..."
           PACKAGE_TYPE=$(aws lambda get-function-configuration \
             --function-name "${FUNCTION_NAME}" \
             --query 'PackageType' \
             --output text)
 
           if [ "$PACKAGE_TYPE" != "Image" ]; then
-            echo "❌ ERROR: Lambda function ${FUNCTION_NAME} is currently using package type '${PACKAGE_TYPE}'."
-            echo "It must be recreated as an Image-based Lambda before deployment."
-            echo "Please delete it manually and rerun this workflow:"
-            echo "  aws lambda delete-function --function-name ${FUNCTION_NAME}"
+            echo "❌ ERROR: Lambda function ${FUNCTION_NAME} is not image-based."
             exit 1
           fi
 
-          echo "Updating Lambda ${FUNCTION_NAME} with new image ${IMAGE_URI}..."
           aws lambda update-function-code \
             --function-name "${FUNCTION_NAME}" \
             --image-uri "${IMAGE_URI}"
-
-          echo "Waiting for Lambda update..."
           aws lambda wait function-updated --function-name "${FUNCTION_NAME}"
 
-          echo "✅ Lambda update complete."
+  configure-lambda-env:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: lambda-deploy
+      cancel-in-progress: true
+    permissions:
+      id-token: write
+      contents: read
+    needs: deploy-lambda
+    outputs:
+      alias: ${{ steps.env-vars.outputs.alias }}
+    steps:
+      - uses: actions/checkout@v5
 
       - name: Set environment variables and alias
         id: env-vars
@@ -189,40 +229,43 @@ jobs:
           ENV_VARS: "MEALIE_API_URL,MEALIE_API_KEY,MEALIE_SHOPPING_LIST_ID,OBSIDIAN_VAULT_OWNER,OBSIDIAN_VAULT_REPOSITORY,OBSIDIAN_VAULT_TOKEN,OPENROUTER_API_KEY"
         run: |
           set -euo pipefail
-
-          # Determine alias
           BRANCH="${GITHUB_REF_NAME}"
           ALIAS="staging"
           [ "$BRANCH" = "main" ] && ALIAS="prod"
 
-          # Start JSON with function name and alias
           ENV_JSON=$(jq -n --arg fn "$FUNCTION_NAME" --arg alias "$ALIAS" \
             '{FunctionName: $fn, Environment: {Variables: {ALIAS: $alias}}}')
 
-          # Add other environment variables dynamically
           IFS=',' read -ra VARS <<< "$ENV_VARS"
           for VAR in "${VARS[@]}"; do
               VALUE=$(printenv "$VAR")
-              # Escape quotes in VALUE
               VALUE_ESCAPED=$(echo "$VALUE" | sed 's/"/\\"/g')
               ENV_JSON=$(echo "$ENV_JSON" | jq --arg k "$VAR" --arg v "$VALUE_ESCAPED" '.Environment.Variables[$k]=$v')
           done
 
-          echo "Updating Lambda environment variables:"
-          aws lambda update-function-configuration \
-            --cli-input-json "$ENV_JSON"
-
+          aws lambda update-function-configuration --cli-input-json "$ENV_JSON"
+          aws lambda wait function-updated --function-name "${FUNCTION_NAME}"
           echo "alias=${ALIAS}" >> "$GITHUB_OUTPUT"
 
-          echo "Waiting for Lambda update..."
-          aws lambda wait function-updated --function-name "${FUNCTION_NAME}"
-
-          echo "✅ Lambda environment variables updated."
+  publish-lambda-version:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: lambda-deploy
+      cancel-in-progress: true
+    permissions:
+      id-token: write
+      contents: read
+    needs: configure-lambda-env
+    outputs:
+      lambda-version: ${{ steps.publish.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
 
       - name: Publish new version and update alias
+        id: publish
         run: |
           set -euo pipefail
-          ALIAS=${{ steps.env-vars.outputs.alias }}
+          ALIAS=${{ needs.configure-lambda-env.outputs.alias }}
 
           VERSION=$(aws lambda publish-version --function-name "${FUNCTION_NAME}" --query 'Version' --output text)
 
@@ -238,12 +281,20 @@ jobs:
               --function-version "${VERSION}"
           fi
 
-          echo "✅ Updated ${ALIAS} alias to version ${VERSION}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+  e2e-tests:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    needs: publish-lambda-version
+    steps:
+      - uses: actions/checkout@v5
 
       - name: Run E2E tests
         run: |
           poetry install
-          poetry run pytest tests/e2e --url "${{ steps.get-api-url.outputs.api_url }}/${{ steps.env-vars.outputs.alias }}"
+          poetry run pytest tests/e2e --url "https://${FUNCTION_NAME}.execute-api.${AWS_REGION}.amazonaws.com/${{ needs.configure-lambda-env.outputs.alias }}"
         env:
           STAGING_API_KEY: ${{ secrets.STAGING_API_KEY }}
           PROD_API_KEY: ${{ secrets.PROD_API_KEY }}
