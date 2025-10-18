@@ -198,18 +198,26 @@ jobs:
             ALIAS="staging"
           fi
 
-          # Construct environment JSON dynamically
-          ENV_JSON="ALIAS=$ALIAS"
+          # Start JSON object
+          ENV_JSON="{\"ALIAS\":\"$ALIAS\""
+
+          # Add other environment variables
           IFS=',' read -ra VARS <<< "$ENV_VARS"
           for VAR in "${VARS[@]}"; do
             VALUE=$(printenv "$VAR")
-            ENV_JSON+=",${VAR}=$VALUE"
+            # Escape quotes if any
+            VALUE_ESCAPED=$(printf '%s' "$VALUE" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read())[1:-1])')
+            ENV_JSON+=",\"$VAR\":\"$VALUE_ESCAPED\""
           done
+          ENV_JSON+="}"
+
+          # Wrap in Variables key
+          ENV_JSON_FULL="{\"Variables\":$ENV_JSON}"
 
           echo "Updating Lambda environment variables..."
           aws lambda update-function-configuration \
             --function-name "${FUNCTION_NAME}" \
-            --environment Variables=$ENV_JSON
+            --cli-input-json <(echo "$ENV_JSON_FULL")
 
           echo "alias=${ALIAS}" >> "$GITHUB_OUTPUT"
 
