@@ -86,8 +86,8 @@ jobs:
 
           echo "Updating Lambda environment variables:"
           aws lambda update-function-configuration \
-            --function-name "${FUNCTION_NAME}" \
-            --environment 'Variables=$ENV_JSON'
+            --function-name "$FUNCTION_NAME" \
+            --cli-input-json "$ENV_JSON"
 
           echo "Waiting for Lambda update..."
           aws lambda wait function-updated --function-name "${FUNCTION_NAME}"
