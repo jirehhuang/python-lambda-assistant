@@ -240,9 +240,10 @@ jobs:
 
           echo "✅ Updated ${ALIAS} alias to version ${VERSION}"
 
-      - name: Run prod E2E tests
+      - name: Run E2E tests
         run: |
           poetry install
-          poetry run pytest tests/e2e --url "${{ steps.get-api-url.outputs.api_url }}/prod"
+          poetry run pytest tests/e2e --url "${{ steps.get-api-url.outputs.api_url }}/${{ steps.env-vars.outputs.alias }}"
         env:
+          STAGING_API_KEY: ${{ secrets.STAGING_API_KEY }}
           PROD_API_KEY: ${{ secrets.PROD_API_KEY }}
