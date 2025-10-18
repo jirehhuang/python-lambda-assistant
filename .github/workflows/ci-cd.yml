@@ -146,6 +146,9 @@ jobs:
       id-token: write
       contents: read
 
+    outputs:
+      api_url: ${{ steps.get-api-url.outputs.api_url }}
+
     steps:
       - uses: actions/checkout@v5
 
@@ -263,6 +266,24 @@ jobs:
 
           echo "✅ Updated ${ALIAS} alias to version ${VERSION}"
 
+      - name: Get API URL
+        id: get-api-url
+        run: |
+          set -euo pipefail
+          API_NAME="${FUNCTION_NAME}-api-${{ steps.env-vars.outputs.alias }}"
+
+          api_id=$(aws apigateway get-rest-apis \
+            --query "items[?name=='${API_NAME}'].id" \
+            --output text)
+
+          if [ -z "$api_id" ] || [ "$api_id" = "None" ]; then
+            echo "❌ API Gateway for ${API_NAME} does not exist. Please create it and re-run this job."
+            exit 1
+          fi
+
+          url="https://${api_id}.execute-api.${AWS_REGION}.amazonaws.com"
+          echo "api_url=$url" >> "$GITHUB_OUTPUT"
+
   e2e-tests:
     needs: [lambda-deploy]
     runs-on: ubuntu-latest
@@ -283,26 +304,8 @@ jobs:
       - name: Install deps
         run: poetry install
 
-      - name: Get API URL
-        id: get-api-url
-        run: |
-          set -euo pipefail
-          API_NAME="${FUNCTION_NAME}-api-${{ needs.lambda-deploy.outputs.alias }}"
-
-          api_id=$(aws apigateway get-rest-apis \
-            --query "items[?name=='${API_NAME}'].id" \
-            --output text)
-
-          if [ -z "$api_id" ] || [ "$api_id" = "None" ]; then
-            echo "❌ API Gateway for ${API_NAME} does not exist. Please create it and re-run this job."
-            exit 1
-          fi
-
-          url="https://${api_id}.execute-api.${AWS_REGION}.amazonaws.com"
-          echo "api_url=$url" >> "$GITHUB_OUTPUT"
-
       - name: Run E2E tests
-        run: poetry run pytest tests/e2e --url "${{ steps.get-api-url.outputs.api_url }}/${{ needs.lambda-deploy.outputs.alias }}"
+        run: poetry run pytest tests/e2e --url "${{ needs.lambda-deploy.outputs.api_url }}/${{ needs.lambda-deploy.outputs.alias }}"
         env:
           STAGING_API_KEY: ${{ secrets.STAGING_API_KEY }}
           PROD_API_KEY: ${{ secrets.PROD_API_KEY }}
