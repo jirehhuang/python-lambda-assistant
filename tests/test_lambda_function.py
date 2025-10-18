@@ -4,9 +4,6 @@ import pytest
 
 from lambda_function import lambda_handler
 from lambda_function.alexa import _text_output
-from lambda_function.responder import _get_assistant
-
-_get_assistant(bool_prod=False)
 
 
 def test_no_query():
