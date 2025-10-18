@@ -85,6 +85,9 @@ jobs:
       id-token: write
       contents: read
 
+    outputs:
+      image_uri: ${{ steps.build-image.outputs.image_uri }}
+
     steps:
       - uses: actions/checkout@v5
 
