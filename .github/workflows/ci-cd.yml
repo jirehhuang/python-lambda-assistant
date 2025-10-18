@@ -185,6 +185,8 @@ jobs:
 
       - name: Set environment variables and alias
         id: env-vars
+        env:
+          ENV_VARS: "MEALIE_API_URL,MEALIE_API_KEY,MEALIE_SHOPPING_LIST_ID,OBSIDIAN_VAULT_OWNER,OBSIDIAN_VAULT_REPOSITORY,OBSIDIAN_VAULT_TOKEN,OPENROUTER_API_KEY"
         run: |
           set -euo pipefail
 
