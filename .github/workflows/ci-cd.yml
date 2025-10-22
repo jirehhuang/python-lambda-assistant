@@ -311,6 +311,6 @@ jobs:
       - name: Run E2E tests
         run: poetry run pytest tests/e2e --url "${{ needs.lambda-deploy.outputs.api_url }}/${{ needs.lambda-deploy.outputs.alias }}"
         env:
-          ALIAS: ${{ needs.lambda-deploy.outputs.alias }}
+          ALIAS: staging  # Execute in staging mode internally even for prod endpoint
           STAGING_API_KEY: ${{ secrets.STAGING_API_KEY }}
           PROD_API_KEY: ${{ secrets.PROD_API_KEY }}
