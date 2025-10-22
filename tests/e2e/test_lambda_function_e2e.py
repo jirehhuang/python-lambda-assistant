@@ -27,7 +27,12 @@ def test_no_query(api_url, api_key, query):
 
 
 @pytest.mark.parametrize(
-    "query, expected", [("What are some synonyms of 'happy'?", "joyful")]
+    "query, expected",
+    [
+        ("What are some synonyms of 'happy'?", "joyful"),
+        ("I need to get an oil change", "done"),
+        ("Add tomatoes to the shopping list", "done"),
+    ],
 )
 def test_query(api_url, api_key, query, expected):
     """Test that if a valid query is provided, the API response successfully
