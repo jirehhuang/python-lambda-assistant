@@ -28,10 +28,18 @@ def test_invalid_body(body):
     )
 
 
-def test_success_text():
-    """Test that if a valid body with query is provided, the lambda_handler
-    correctly returns a success message."""
-    query = "I need to check the mail."
+@pytest.mark.parametrize(
+    "query, expected",
+    [
+        ("What are some antonyms of 'happy'?", "sad"),
+        ("I need to check the mail", "done"),
+        ("Add potato to the shopping list", "done"),
+    ],
+)
+def test_query(query, expected):
+    """Test that if a valid query is provided, the API response successfully
+    returns a response."""
     response = lambda_handler({"body": {"query": query}}, None)
+    assert "status" in response
     assert response["status"] == "success"
-    assert response["data"]["text"] == "Done."
+    assert expected in response["data"]["text"].lower()
