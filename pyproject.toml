@@ -14,7 +14,7 @@ dependencies = [
     "ask-sdk-core>=1.19.0,<2.0.0",
     "uuid6>=2025.0.1",
     "numpy>=2.3.2,<3.0.0",
-    "jhutils @ https://github.com/jirehhuang/jhutils/archive/159802de51f8bfe508754c604d90446fe323a170.tar.gz",
+    "jhutils @ https://github.com/jirehhuang/jhutils/archive/68c4ff0f66486af5b77c4839e624780b4a0a6444.tar.gz",
 ]
 
 [tool.poetry]
