@@ -7,7 +7,6 @@ from typing import Any
 from uuid6 import uuid6
 
 
-# pylint: disable=too-many-arguments, too-many-positional-arguments
 def _make_response(
     data: dict,
     status: str = "success",
