@@ -109,7 +109,7 @@ def test_general_intent_add_task():
     expected response."""
     query = "I should text Joshua back."
     response = lambda_handler(make_general_intent_payload(query), None)
-    assert "Done." in response["response"]["outputSpeech"]["ssml"]
+    assert "Added 1 task:" in response["response"]["outputSpeech"]["ssml"]
 
 
 def test_general_intent_respond():
