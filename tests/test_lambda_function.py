@@ -32,8 +32,8 @@ def test_invalid_body(body):
     "query, expected",
     [
         ("What are some antonyms of 'happy'?", "sad"),
-        ("I need to check the mail", "done"),
-        ("Add potato to the shopping list", "done"),
+        ("I need to check the mail", "added 1 task"),
+        ("Add potato to the shopping list", "added 1 item"),
     ],
 )
 def test_query(query, expected):

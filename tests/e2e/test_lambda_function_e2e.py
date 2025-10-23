@@ -30,8 +30,8 @@ def test_no_query(api_url, api_key, query):
     "query, expected",
     [
         ("What are some synonyms of 'happy'?", "joyful"),
-        ("I need to get an oil change", "done"),
-        ("Add tomatoes to the shopping list", "done"),
+        ("I need to get an oil change", "added 1 task"),
+        ("Add tomatoes to the shopping list", "added 1 item"),
     ],
 )
 def test_query(api_url, api_key, query, expected):
